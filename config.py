@@ -1,3 +1,9 @@
-BOT_TOKEN = "8301146510:AAGnew4YF4-SMqR0d7RnHyfhCon683ObptM"
-ADMIN_ID = 7319540965
-BOT_USERNAME = "Magazin_DragRacing_bot"
+import os
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+BOT_USERNAME = os.getenv("BOT_USERNAME", "")
+
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN not set in environment variables")
+
