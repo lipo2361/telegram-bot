@@ -1,6 +1,6 @@
 aiogram==3.4.1
 aiohttp
-pydantic>=2.4.1,<2.6
+
 
 
 
