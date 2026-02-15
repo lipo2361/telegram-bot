@@ -1,6 +1,6 @@
 import sqlite3
 
-conn = sqlite3.connect("database.db")
+conn = sqlite3.connect("database.db", check_same_thread=False)
 cursor = conn.cursor()
 
 # Пользователи
@@ -53,7 +53,7 @@ def add_product(currency, amount, price):
 
 
 def get_products(currency):
-    cursor.execute("SELECT * FROM products WHERE currency=?", (currency,))
+    cursor.execute("SELECT * FROM products WHERE currency=? ORDER BY id DESC", (currency,))
     return cursor.fetchall()
 
 
@@ -79,4 +79,6 @@ def create_order(user_id, price, product_id):
     )
     conn.commit()
     return cursor.lastrowid
+
+
 
