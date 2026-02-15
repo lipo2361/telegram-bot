@@ -57,6 +57,11 @@ def get_products(currency):
     return cursor.fetchall()
 
 
+def get_all_products():
+    cursor.execute("SELECT * FROM products ORDER BY id DESC")
+    return cursor.fetchall()
+
+
 def get_product(product_id):
     cursor.execute("SELECT * FROM products WHERE id=?", (product_id,))
     return cursor.fetchone()
@@ -74,3 +79,4 @@ def create_order(user_id, price, product_id):
     )
     conn.commit()
     return cursor.lastrowid
+
