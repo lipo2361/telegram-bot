@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from config import BOT_TOKEN, ADMIN_ID, BOT_USERNAME
 from database import *
 
+print("BOT_TOKEN starts with:", str(BOT_TOKEN)[:10])
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -217,3 +218,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
