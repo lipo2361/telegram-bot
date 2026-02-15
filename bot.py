@@ -1,12 +1,18 @@
 import asyncio
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    FSInputFile
+)
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
+
 from config import BOT_TOKEN, ADMIN_ID, BOT_USERNAME
 from database import *
 
-print("BOT_TOKEN starts with:", str(BOT_TOKEN)[:10])
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -27,7 +33,7 @@ def main_menu():
     ])
 
 
-def back():
+def back_to_main():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back")]
     ])
@@ -37,7 +43,14 @@ def admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Добавить товар", callback_data="add_product")],
         [InlineKeyboardButton(text="❌ Удалить товар", callback_data="delete_product")],
-        [InlineKeyboardButton(text="📋 Заказы", callback_data="orders")]
+        [InlineKeyboardButton(text="📋 Заказы", callback_data="orders")],
+        [InlineKeyboardButton(text="⬅️ В главное меню", callback_data="back")]
+    ])
+
+
+def back_to_admin():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Назад в админку", callback_data="admin_back")]
     ])
 
 
@@ -45,7 +58,7 @@ def admin_menu():
 @dp.message(F.text.startswith("/start"))
 async def start(message: Message):
     args = message.text.split()
-    ref = int(args[1]) if len(args) > 1 else None
+    ref = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
 
     if ref == message.from_user.id:
         ref = None
@@ -66,7 +79,6 @@ async def start(message: Message):
 ━━━━━━━━━━━━━━━━━━
 Выберите раздел 👇
 """
-
     await message.answer(text, reply_markup=main_menu())
 
 
@@ -77,6 +89,7 @@ async def coins(callback: CallbackQuery):
     buttons = []
 
     for p in products:
+        # p = (id, currency, amount, price) или похожее
         buttons.append([InlineKeyboardButton(
             text=f"🪙 {p[2]} ┃ 💰 {p[3]}₽",
             callback_data=f"buy_{p[0]}"
@@ -116,6 +129,7 @@ async def buy(callback: CallbackQuery):
     product_id = int(callback.data.split("_")[1])
     p = get_product(product_id)
 
+    # p = (id, currency, amount, price)
     order_id = create_order(callback.from_user.id, p[3], product_id)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -136,7 +150,7 @@ async def pay(callback: CallbackQuery):
 
     await callback.message.answer_photo(
         qr,
-        caption="💳Оплатите, выбранную вами цену и пришлите чек💸\n\n🌐Обязательно перед оплатой выключите Vpn✅"
+        caption="💳 Оплатите выбранную сумму и пришлите чек 💸\n\n🌐 Перед оплатой выключите VPN ✅"
     )
 
 
@@ -166,11 +180,10 @@ async def referral(callback: CallbackQuery):
 Ваша ссылка:
 {link}
 """
+    await callback.message.edit_text(text, reply_markup=back_to_main())
 
-    await callback.message.edit_text(text, reply_markup=back())
 
-
-# ====== НАЗАД ======
+# ====== НАЗАД В ГЛАВНОЕ ======
 @dp.callback_query(F.data == "back")
 async def go_back(callback: CallbackQuery):
     await callback.message.edit_text("Главное меню 👇", reply_markup=main_menu())
@@ -183,32 +196,117 @@ async def admin(message: Message):
         await message.answer("👑 Админ панель:", reply_markup=admin_menu())
 
 
+@dp.callback_query(F.data == "admin_back")
+async def admin_back(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    await callback.message.edit_text("👑 Админ панель:", reply_markup=admin_menu())
+
+
+# ====== ДОБАВЛЕНИЕ ТОВАРА ======
 @dp.callback_query(F.data == "add_product")
 async def add_product_start(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
     await state.set_state(AddProduct.currency)
-    await callback.message.answer("Введите тип: coins или bucks")
+    await callback.message.answer("Введите тип: coins или bucks", reply_markup=back_to_admin())
 
 
 @dp.message(AddProduct.currency)
 async def set_currency(message: Message, state: FSMContext):
-    await state.update_data(currency=message.text)
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    currency = message.text.strip().lower()
+    if currency not in ("coins", "bucks"):
+        await message.answer("❌ Нужно написать: coins или bucks")
+        return
+
+    await state.update_data(currency=currency)
     await state.set_state(AddProduct.amount)
     await message.answer("Введите количество:")
 
 
 @dp.message(AddProduct.amount)
 async def set_amount(message: Message, state: FSMContext):
-    await state.update_data(amount=message.text)
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    await state.update_data(amount=message.text.strip())
     await state.set_state(AddProduct.price)
-    await message.answer("Введите цену:")
+    await message.answer("Введите цену (числом):")
 
 
 @dp.message(AddProduct.price)
 async def set_price(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    if not message.text.strip().isdigit():
+        await message.answer("❌ Цена должна быть числом. Пример: 199")
+        return
+
     data = await state.get_data()
-    add_product(data["currency"], data["amount"], int(message.text))
+    add_product(data["currency"], data["amount"], int(message.text.strip()))
+
     await state.clear()
-    await message.answer("✅ Товар добавлен")
+    await message.answer("✅ Товар добавлен", reply_markup=admin_menu())
+
+
+# ====== УДАЛЕНИЕ ТОВАРА (ТО, ЧЕГО НЕ ХВАТАЛО) ======
+@dp.callback_query(F.data == "delete_product")
+async def delete_product_menu(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    products = get_all_products()  # должен быть в database.py
+
+    if not products:
+        await callback.answer("Товаров нет", show_alert=True)
+        return
+
+    buttons = []
+    for p in products:
+        # p = (id, currency, amount, price)
+        buttons.append([InlineKeyboardButton(
+            text=f"❌ {p[1]} | {p[2]} | {p[3]}₽",
+            callback_data=f"del_{p[0]}"
+        )])
+
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад в админку", callback_data="admin_back")])
+
+    await callback.message.edit_text(
+        "Выбери товар для удаления:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+
+
+@dp.callback_query(F.data.startswith("del_"))
+async def delete_product_action(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    product_id = int(callback.data.split("_")[1])
+    delete_product(product_id)  # должен быть в database.py
+
+    await callback.answer("Удалено ✅")
+    await callback.message.edit_text("👑 Админ панель:", reply_markup=admin_menu())
+
+
+# ====== ЗАГЛУШКА НА ЗАКАЗЫ (чтобы кнопка не молчала) ======
+@dp.callback_query(F.data == "orders")
+async def orders(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    await callback.message.edit_text("📋 Раздел заказов пока не реализован.", reply_markup=admin_menu())
 
 
 # ====== ЗАПУСК ======
@@ -218,4 +316,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
