@@ -53,7 +53,10 @@ def add_product(currency, amount, price):
 
 
 def get_products(currency):
-    cursor.execute("SELECT * FROM products WHERE currency=? ORDER BY id DESC", (currency,))
+    cursor.execute(
+        "SELECT * FROM products WHERE currency=? ORDER BY id DESC",
+        (currency,)
+    )
     return cursor.fetchall()
 
 
@@ -70,6 +73,7 @@ def get_product(product_id):
 def delete_product(product_id):
     cursor.execute("DELETE FROM products WHERE id=?", (product_id,))
     conn.commit()
+    return cursor.rowcount  # сколько строк удалили (0 или 1)
 
 
 def create_order(user_id, price, product_id):
