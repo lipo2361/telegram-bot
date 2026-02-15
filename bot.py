@@ -1,4 +1,7 @@
+import os
 import asyncio
+from aiohttp import web
+
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message,
@@ -11,7 +14,10 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
 from config import BOT_TOKEN, ADMIN_ID, BOT_USERNAME
-from database import *
+from database import (
+    add_user, add_product, get_products, get_product,
+    delete_product, create_order, get_all_products
+)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -85,11 +91,11 @@ async def start(message: Message):
 # ====== ПОКУПКА COINS ======
 @dp.callback_query(F.data == "coins")
 async def coins(callback: CallbackQuery):
+    await callback.answer()
     products = get_products("coins")
-    buttons = []
 
+    buttons = []
     for p in products:
-        # p = (id, currency, amount, price) или похожее
         buttons.append([InlineKeyboardButton(
             text=f"🪙 {p[2]} ┃ 💰 {p[3]}₽",
             callback_data=f"buy_{p[0]}"
@@ -106,9 +112,10 @@ async def coins(callback: CallbackQuery):
 # ====== ПОКУПКА BUCKS ======
 @dp.callback_query(F.data == "bucks")
 async def bucks(callback: CallbackQuery):
+    await callback.answer()
     products = get_products("bucks")
-    buttons = []
 
+    buttons = []
     for p in products:
         buttons.append([InlineKeyboardButton(
             text=f"💵 {p[2]} ┃ 💰 {p[3]}₽",
@@ -126,10 +133,13 @@ async def bucks(callback: CallbackQuery):
 # ====== ВЫБОР ТОВАРА ======
 @dp.callback_query(F.data.startswith("buy_"))
 async def buy(callback: CallbackQuery):
+    await callback.answer()
     product_id = int(callback.data.split("_")[1])
     p = get_product(product_id)
+    if not p:
+        await callback.message.answer("❌ Товар не найден")
+        return
 
-    # p = (id, currency, amount, price)
     order_id = create_order(callback.from_user.id, p[3], product_id)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -146,8 +156,8 @@ async def buy(callback: CallbackQuery):
 # ====== ОПЛАТА ======
 @dp.callback_query(F.data.startswith("pay_"))
 async def pay(callback: CallbackQuery):
+    await callback.answer()
     qr = FSInputFile("qr.jpg")
-
     await callback.message.answer_photo(
         qr,
         caption="💳 Оплатите выбранную сумму и пришлите чек 💸\n\n🌐 Перед оплатой выключите VPN ✅"
@@ -169,6 +179,7 @@ async def check_handler(message: Message):
 # ====== РЕФЕРАЛКА ======
 @dp.callback_query(F.data == "ref")
 async def referral(callback: CallbackQuery):
+    await callback.answer()
     link = f"https://t.me/{BOT_USERNAME}?start={callback.from_user.id}"
 
     text = f"""
@@ -186,6 +197,7 @@ async def referral(callback: CallbackQuery):
 # ====== НАЗАД В ГЛАВНОЕ ======
 @dp.callback_query(F.data == "back")
 async def go_back(callback: CallbackQuery):
+    await callback.answer()
     await callback.message.edit_text("Главное меню 👇", reply_markup=main_menu())
 
 
@@ -198,6 +210,7 @@ async def admin(message: Message):
 
 @dp.callback_query(F.data == "admin_back")
 async def admin_back(callback: CallbackQuery):
+    await callback.answer()
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("Нет доступа", show_alert=True)
         return
@@ -208,6 +221,7 @@ async def admin_back(callback: CallbackQuery):
 # ====== ДОБАВЛЕНИЕ ТОВАРА ======
 @dp.callback_query(F.data == "add_product")
 async def add_product_start(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("Нет доступа", show_alert=True)
         return
@@ -257,22 +271,21 @@ async def set_price(message: Message, state: FSMContext):
     await message.answer("✅ Товар добавлен", reply_markup=admin_menu())
 
 
-# ====== УДАЛЕНИЕ ТОВАРА (ТО, ЧЕГО НЕ ХВАТАЛО) ======
+# ====== УДАЛЕНИЕ ТОВАРА ======
 @dp.callback_query(F.data == "delete_product")
 async def delete_product_menu(callback: CallbackQuery):
+    await callback.answer()
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("Нет доступа", show_alert=True)
         return
 
-    products = get_all_products()  # должен быть в database.py
-
+    products = get_all_products()
     if not products:
-        await callback.answer("Товаров нет", show_alert=True)
+        await callback.message.edit_text("❌ Товаров нет.", reply_markup=admin_menu())
         return
 
     buttons = []
     for p in products:
-        # p = (id, currency, amount, price)
         buttons.append([InlineKeyboardButton(
             text=f"❌ {p[1]} | {p[2]} | {p[3]}₽",
             callback_data=f"del_{p[0]}"
@@ -288,20 +301,22 @@ async def delete_product_menu(callback: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("del_"))
 async def delete_product_action(callback: CallbackQuery):
+    await callback.answer()
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("Нет доступа", show_alert=True)
         return
 
     product_id = int(callback.data.split("_")[1])
-    delete_product(product_id)  # должен быть в database.py
+    delete_product(product_id)
 
-    await callback.answer("Удалено ✅")
+    await callback.answer("Удалено ✅", show_alert=True)
     await callback.message.edit_text("👑 Админ панель:", reply_markup=admin_menu())
 
 
-# ====== ЗАГЛУШКА НА ЗАКАЗЫ (чтобы кнопка не молчала) ======
+# ====== ЗАКАЗЫ (заглушка) ======
 @dp.callback_query(F.data == "orders")
 async def orders(callback: CallbackQuery):
+    await callback.answer()
     if callback.from_user.id != ADMIN_ID:
         await callback.answer("Нет доступа", show_alert=True)
         return
@@ -309,12 +324,29 @@ async def orders(callback: CallbackQuery):
     await callback.message.edit_text("📋 Раздел заказов пока не реализован.", reply_markup=admin_menu())
 
 
+# ====== MINI WEB SERVER (чтобы Render видел порт) ======
+async def keep_alive():
+    async def handle(request):
+        return web.Response(text="OK")
+
+    app = web.Application()
+    app.router.add_get("/", handle)
+
+    port = int(os.environ.get("PORT", "10000"))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+
 # ====== ЗАПУСК ======
 async def main():
+    asyncio.create_task(keep_alive())
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
