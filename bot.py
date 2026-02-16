@@ -13,14 +13,18 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from config import BOT_TOKEN, ADMIN_ID, BOT_USERNAME
 from database import *
 
-# ===== Webhook settings =====
-WEBHOOK_PATH = "/webhook"
+# ---------- WEBHOOK SETTINGS ----------
 APP_URL = os.getenv("APP_URL")  # например: https://telegram-bot-jwq5.onrender.com
-WEBHOOK_URL = f"{APP_URL}{WEBHOOK_PATH}" if APP_URL else None
+if not APP_URL:
+    raise ValueError("APP_URL not set in environment variables")
+
+WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
+WEBHOOK_URL = f"{APP_URL}{WEBHOOK_PATH}"
+
+PORT = int(os.getenv("PORT", "10000"))
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
 
 # ================= КЛАВИАТУРЫ =================
 def main_menu():
@@ -30,12 +34,10 @@ def main_menu():
         [InlineKeyboardButton(text="🤝 Партнёрская программа", callback_data="ref")]
     ])
 
-
 def back_button():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back")]
     ])
-
 
 def admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -51,7 +53,6 @@ async def start(message: Message):
     add_user(message.from_user.id)
 
     photo = FSInputFile("banner.jpg")
-
     text = """
 ⚡Zews Gold Shop🛍️
 
@@ -92,6 +93,9 @@ async def back(callback: CallbackQuery):
 async def referral(callback: CallbackQuery):
     photo = FSInputFile("banner.jpg")
 
+    # если позже включишь рефералку:
+    # link = f"https://t.me/{BOT_USERNAME}?start={callback.from_user.id}"
+
     await callback.message.delete()
     await callback.message.answer_photo(
         photo,
@@ -107,14 +111,11 @@ async def coins(callback: CallbackQuery):
     photo = FSInputFile("coins.jpg")
 
     buttons = []
-    for p in products:
-        # p = (id, currency, amount, price)
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"{p[2]} ┃ {p[3]}₽",
-                callback_data=f"buy_{p[0]}"
-            )
-        ])
+    for p in products:  # p = (id, currency, amount, price)
+        buttons.append([InlineKeyboardButton(
+            text=f"{p[2]} ┃ {p[3]}₽",
+            callback_data=f"buy_{p[0]}"
+        )])
 
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back")])
 
@@ -134,12 +135,10 @@ async def bucks(callback: CallbackQuery):
 
     buttons = []
     for p in products:
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"{p[2]} ┃ {p[3]}₽",
-                callback_data=f"buy_{p[0]}"
-            )
-        ])
+        buttons.append([InlineKeyboardButton(
+            text=f"{p[2]} ┃ {p[3]}₽",
+            callback_data=f"buy_{p[0]}"
+        )])
 
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back")])
 
@@ -160,11 +159,10 @@ async def buy(callback: CallbackQuery):
         await callback.answer("Товар не найден", show_alert=True)
         return
 
-    # create_order(user_id, price, product_id)
-    order_id = create_order(callback.from_user.id, product[3], product_id)
+    # ВАЖНО: твоя база: create_order(user_id, product_id, price)
+    order_id = create_order(callback.from_user.id, product_id, product[3])
 
     photo = FSInputFile("order.jpg")
-
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏦 Оплата по СБП -📱", callback_data=f"pay_{order_id}")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back")]
@@ -190,14 +188,14 @@ async def pay(callback: CallbackQuery):
 # ================= ЧЕК =================
 @dp.message(F.photo)
 async def check_handler(message: Message):
+    # Лучше привязать pending к user_id, но пока оставим твою логику
     orders = get_pending_orders()
     if not orders:
         await message.answer("Нет активного заказа. Сначала выберите товар 🛍️")
         return
 
-    order = orders[-1]  # (id, user_id, product_id, price, status)
+    order = orders[-1]
     order_id = order[0]
-
     username = f"@{message.from_user.username}" if message.from_user.username else "Нет username"
 
     await bot.send_photo(
@@ -227,8 +225,6 @@ async def approve(callback: CallbackQuery):
         return
 
     update_order_status(order_id, "approved")
-
-    # order = (id, user_id, product_id, price, status)
     await bot.send_message(
         order[1],
         "🛍️Ваша оплата подтверждена✅\nВыставите скин с учётом комиссии (комиссия на нас) 🎮 и отправьте скриншот👨🏻‍💻"
@@ -249,7 +245,6 @@ async def reject(callback: CallbackQuery):
         return
 
     update_order_status(order_id, "rejected")
-
     await bot.send_message(order[1], "Оплата отклонена ❌")
     await callback.message.edit_caption("❌ Отклонено. Сообщение отправлено пользователю.")
 
@@ -276,41 +271,30 @@ async def show_orders(callback: CallbackQuery):
         await callback.message.answer(f"Заказ #{o[0]} | ID пользователя {o[1]}")
 
 
-# ================= WEBHOOK LIFECYCLE =================
+# ---------- AIOHTTP SERVER ----------
+async def health(request):
+    return web.Response(text="ok")
+
 async def on_startup(app: web.Application):
-    if not WEBHOOK_URL:
-        print("❌ APP_URL не задан (Environment: APP_URL)")
-        return
-
+    # Убираем конфликт и ставим webhook заново
+    await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_webhook(WEBHOOK_URL)
-    print("✅ Webhook установлен:", WEBHOOK_URL)
-
 
 async def on_shutdown(app: web.Application):
     await bot.delete_webhook()
-    print("🧹 Webhook удалён")
+    await bot.session.close()
 
-
-# ================= ЗАПУСК (WEBHOOK) =================
 def main():
     app = web.Application()
+    app.router.add_get("/", health)
 
-    SimpleRequestHandler(
-        dispatcher=dp,
-        bot=bot,
-    ).register(app, path=WEBHOOK_PATH)
-
+    SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
     setup_application(app, dp, bot=bot)
 
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
 
-    port = int(os.getenv("PORT", "10000"))
-    web.run_app(app, host="0.0.0.0", port=port)
-
+    web.run_app(app, host="0.0.0.0", port=PORT)
 
 if __name__ == "__main__":
     main()
-
-
-
