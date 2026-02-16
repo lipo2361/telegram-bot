@@ -1,5 +1,5 @@
 import os
-import asyncio
+import logging
 
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
@@ -10,21 +10,18 @@ from aiogram.types import (
 )
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
-from config import BOT_TOKEN, ADMIN_ID, BOT_USERNAME
+from config import BOT_TOKEN, ADMIN_ID, BOT_USERNAME, WEBHOOK_PATH, WEBHOOK_URL
 from database import *
 
-# ---------- WEBHOOK SETTINGS ----------
-APP_URL = os.getenv("APP_URL")  # например: https://telegram-bot-jwq5.onrender.com
-if not APP_URL:
-    raise ValueError("APP_URL not set in environment variables")
-
-WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
-WEBHOOK_URL = f"{APP_URL}{WEBHOOK_PATH}"
+# ---------- LOGGING ----------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 PORT = int(os.getenv("PORT", "10000"))
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
 
 # ================= КЛАВИАТУРЫ =================
 def main_menu():
@@ -93,9 +90,6 @@ async def back(callback: CallbackQuery):
 async def referral(callback: CallbackQuery):
     photo = FSInputFile("banner.jpg")
 
-    # если позже включишь рефералку:
-    # link = f"https://t.me/{BOT_USERNAME}?start={callback.from_user.id}"
-
     await callback.message.delete()
     await callback.message.answer_photo(
         photo,
@@ -111,7 +105,7 @@ async def coins(callback: CallbackQuery):
     photo = FSInputFile("coins.jpg")
 
     buttons = []
-    for p in products:  # p = (id, currency, amount, price)
+    for p in products:
         buttons.append([InlineKeyboardButton(
             text=f"{p[2]} ┃ {p[3]}₽",
             callback_data=f"buy_{p[0]}"
@@ -188,7 +182,6 @@ async def pay(callback: CallbackQuery):
 # ================= ЧЕК =================
 @dp.message(F.photo)
 async def check_handler(message: Message):
-    # Лучше привязать pending к user_id, но пока оставим твою логику
     orders = get_pending_orders()
     if not orders:
         await message.answer("Нет активного заказа. Сначала выберите товар 🛍️")
@@ -276,18 +269,23 @@ async def health(request):
     return web.Response(text="ok")
 
 async def on_startup(app: web.Application):
-    # Убираем конфликт и ставим webhook заново
+    # Ставим webhook при старте
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_webhook(WEBHOOK_URL)
+    logger.info(f"✅ Webhook установлен: {WEBHOOK_URL}")
 
 async def on_shutdown(app: web.Application):
     await bot.delete_webhook()
     await bot.session.close()
+    logger.info("⛔ Webhook удалён, бот остановлен")
 
 def main():
     app = web.Application()
+
+    # для проверки, что сервис жив (открываешь в браузере твой домен)
     app.router.add_get("/", health)
 
+    # webhook endpoint
     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
     setup_application(app, dp, bot=bot)
 
@@ -298,3 +296,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
