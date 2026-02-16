@@ -1,14 +1,12 @@
 import sqlite3
 
-conn = sqlite3.connect("database.db", check_same_thread=False)
+conn = sqlite3.connect("database.db")
 cursor = conn.cursor()
 
 # Пользователи
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    referrer_id INTEGER,
-    balance REAL DEFAULT 0
+    user_id INTEGER PRIMARY KEY
 )
 """)
 
@@ -27,8 +25,8 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
-    price INTEGER,
     product_id INTEGER,
+    price INTEGER,
     status TEXT
 )
 """)
@@ -36,11 +34,8 @@ CREATE TABLE IF NOT EXISTS orders (
 conn.commit()
 
 
-def add_user(user_id, referrer_id=None):
-    cursor.execute(
-        "INSERT OR IGNORE INTO users (user_id, referrer_id) VALUES (?, ?)",
-        (user_id, referrer_id)
-    )
+def add_user(user_id):
+    cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
     conn.commit()
 
 
@@ -52,16 +47,18 @@ def add_product(currency, amount, price):
     conn.commit()
 
 
+def delete_product(product_id):
+    cursor.execute("DELETE FROM products WHERE id=?", (product_id,))
+    conn.commit()
+
+
 def get_products(currency):
-    cursor.execute(
-        "SELECT * FROM products WHERE currency=? ORDER BY id DESC",
-        (currency,)
-    )
+    cursor.execute("SELECT * FROM products WHERE currency=?", (currency,))
     return cursor.fetchall()
 
 
 def get_all_products():
-    cursor.execute("SELECT * FROM products ORDER BY id DESC")
+    cursor.execute("SELECT * FROM products")
     return cursor.fetchall()
 
 
@@ -70,19 +67,28 @@ def get_product(product_id):
     return cursor.fetchone()
 
 
-def delete_product(product_id):
-    cursor.execute("DELETE FROM products WHERE id=?", (product_id,))
-    conn.commit()
-    return cursor.rowcount  # сколько строк удалили (0 или 1)
-
-
-def create_order(user_id, price, product_id):
+def create_order(user_id, product_id, price):
     cursor.execute(
-        "INSERT INTO orders (user_id, price, product_id, status) VALUES (?, ?, ?, ?)",
-        (user_id, price, product_id, "pending")
+        "INSERT INTO orders (user_id, product_id, price, status) VALUES (?, ?, ?, ?)",
+        (user_id, product_id, price, "pending")
     )
     conn.commit()
     return cursor.lastrowid
+
+
+def get_pending_orders():
+    cursor.execute("SELECT * FROM orders WHERE status='pending'")
+    return cursor.fetchall()
+
+
+def update_order_status(order_id, status):
+    cursor.execute("UPDATE orders SET status=? WHERE id=?", (status, order_id))
+    conn.commit()
+
+
+def get_order(order_id):
+    cursor.execute("SELECT * FROM orders WHERE id=?", (order_id,))
+    return cursor.fetchone()
 
 
 
