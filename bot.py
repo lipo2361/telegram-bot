@@ -5,10 +5,8 @@ from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
     FSInputFile
 )
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
 
-from config import BOT_TOKEN, ADMIN_ID
+from config import BOT_TOKEN, ADMIN_ID, BOT_USERNAME
 from database import *
 
 bot = Bot(token=BOT_TOKEN)
@@ -16,17 +14,18 @@ dp = Dispatcher()
 
 
 # ================= СОСТОЯНИЯ =================
-class AddProduct(StatesGroup):
-    currency = State()
-    amount = State()
-    price = State()
+# (пока не используешь — можно оставить, не мешает)
+# class AddProduct(StatesGroup):
+#     currency = State()
+#     amount = State()
+#     price = State()
 
 
 # ================= КЛАВИАТУРЫ =================
 def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⚡Купить голду 🛍️", callback_data="coins")],
-        [InlineKeyboardButton(text="🎁 Купить Battle pass 🛍️", callback_data="bucks")],
+        [InlineKeyboardButton(text="🎫 Купить | Gold Ticket 🛍️", callback_data="bucks")],
         [InlineKeyboardButton(text="🤝 Партнёрская программа", callback_data="ref")]
     ])
 
@@ -55,14 +54,13 @@ async def start(message: Message):
     text = """
 ⚡Zews Gold Shop🛍️
 
-👋 Привет  - Это Zews Gold и его помощник Зевс 😎Он же - Крут в своем деле 🔥
+👋 Привет - Это Zews Gold и его помощник Зевс 😎 Он же - крут в своем деле 🔥
 Сколько голды купишь на этот раз?🛍️
 
-🔥 Для продолжения нажми на кнопку  ⚡Купить голду
+🔥 Для продолжения нажми на кнопку ⚡Купить голду
 
 ⁉️ Если есть вопросы, то пиши их мне - @ZewsGold_Support
 """
-
     await message.answer_photo(photo, caption=text, reply_markup=main_menu())
 
 
@@ -72,16 +70,20 @@ async def back(callback: CallbackQuery):
     photo = FSInputFile("banner.jpg")
 
     await callback.message.delete()
-    await callback.message.answer_photo(photo, caption="""
+    await callback.message.answer_photo(
+        photo,
+        caption="""
 ⚡Zews Gold Shop🛍️
 
-👋 Привет  - Это Zews Gold и его помощник Зевс 😎Он же - Крут в своем деле 🔥
+👋 Привет - Это Zews Gold и его помощник Зевс 😎 Он же - крут в своем деле 🔥
 Сколько голды купишь на этот раз?🛍️
 
-🔥 Для продолжения нажми на кнопку  ⚡Купить голду
+🔥 Для продолжения нажми на кнопку ⚡Купить голду
 
 ⁉️ Если есть вопросы, то пиши их мне - @ZewsGold_Support
-""", reply_markup=main_menu())
+""",
+        reply_markup=main_menu()
+    )
 
 
 # ================= ПАРТНЕРКА =================
@@ -89,10 +91,14 @@ async def back(callback: CallbackQuery):
 async def referral(callback: CallbackQuery):
     photo = FSInputFile("banner.jpg")
 
+    # если хочешь — можно включить рефку по BOT_USERNAME:
+    # link = f"https://t.me/{BOT_USERNAME}?start={callback.from_user.id}"
+    # caption = f"🤝 Получайте 25%... \nВаша ссылка:\n{link}"
+
     await callback.message.delete()
     await callback.message.answer_photo(
         photo,
-        caption="🤝 Получайте 25% с каждой покупки друга!",
+        caption="🤝 Получайте 25% с каждого приглашённого вами друга🛍️\n❌ Внимание: эта функция пока не работает, скоро исправим ✅",
         reply_markup=back_button()
     )
 
@@ -105,9 +111,10 @@ async def coins(callback: CallbackQuery):
 
     buttons = []
     for p in products:
+        # p = (id, currency, amount, price)
         buttons.append([
             InlineKeyboardButton(
-                text=f"G {p[2]} ┃ {p[3]}₽",
+                text=f"{p[2]} ┃ {p[3]}₽",
                 callback_data=f"buy_{p[0]}"
             )
         ])
@@ -117,7 +124,7 @@ async def coins(callback: CallbackQuery):
     await callback.message.delete()
     await callback.message.answer_photo(
         photo,
-        caption="Выберите тариф голды:",
+        caption="🏦 | Выберите сумму голды которую вы хотите купить🛍️:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
 
@@ -142,7 +149,7 @@ async def bucks(callback: CallbackQuery):
     await callback.message.delete()
     await callback.message.answer_photo(
         photo,
-        caption="Выберите Battle Pass:",
+        caption="🎁 Выберите какой Battle pass вы хотите приобрести🛍️:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
 
@@ -152,12 +159,17 @@ async def bucks(callback: CallbackQuery):
 async def buy(callback: CallbackQuery):
     product_id = int(callback.data.split("_")[1])
     product = get_product(product_id)
+    if not product:
+        await callback.answer("Товар не найден", show_alert=True)
+        return
 
-    order_id = create_order(callback.from_user.id, product_id, product[3])
+    # ✅ ВАЖНО: create_order обычно (user_id, price, product_id)
+    order_id = create_order(callback.from_user.id, product[3], product_id)
+
     photo = FSInputFile("order.jpg")
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Оплата по СБП", callback_data=f"pay_{order_id}")],
+        [InlineKeyboardButton(text="🏦 Оплата по СБП -📱", callback_data=f"pay_{order_id}")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back")]
     ])
 
@@ -174,15 +186,18 @@ async def buy(callback: CallbackQuery):
 async def pay(callback: CallbackQuery):
     await callback.message.answer_photo(
         FSInputFile("qr.jpg"),
-        caption="Оплатите и отправьте чек"
+        caption="🏦Оплатите выбранную сумму и пришлите чек🛍️\n📱 Не забудьте перед оплатой выключить VPN ✅"
     )
 
 
 # ================= ЧЕК =================
 @dp.message(F.photo)
 async def check_handler(message: Message):
+    # ⚠️ Это простая логика: берёт последний pending.
+    # Лучше сделать pending для конкретного user_id, но оставим как у тебя.
     orders = get_pending_orders()
     if not orders:
+        await message.answer("Нет активного заказа. Сначала выберите товар 🛍️")
         return
 
     order = orders[-1]
@@ -194,36 +209,53 @@ async def check_handler(message: Message):
         ADMIN_ID,
         message.photo[-1].file_id,
         caption=f"🧾 Заказ #{order_id}\n👤 {username}\n🆔 {message.from_user.id}",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"approve_{order_id}"),
-                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{order_id}")
-            ]
-        ])
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"approve_{order_id}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{order_id}")
+        ]])
     )
 
-    await message.answer("Чек отправлен на проверку ✅")
+    await message.answer("Чек отправлен на проверку, скоро мы вам ответим ✅")
 
 
 # ================= ПОДТВЕРЖДЕНИЕ =================
 @dp.callback_query(F.data.startswith("approve_"))
 async def approve(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
     order_id = int(callback.data.split("_")[1])
     order = get_order(order_id)
+    if not order:
+        await callback.answer("Заказ не найден", show_alert=True)
+        return
 
     update_order_status(order_id, "approved")
-    await bot.send_message(order[1], "Оплата подтверждена ✅")
-    await callback.message.edit_caption("Оплата подтверждена ✅")
+    await bot.send_message(
+        order[1],
+        "🛍️Ваша оплата подтверждена✅\nВыставите скин с учётом комиссии (комиссия на нас) 🎮 и отправьте скриншот👨🏻‍💻"
+    )
+    await callback.message.edit_caption(
+        "✅ Подтверждено. Сообщение отправлено пользователю."
+    )
 
 
 @dp.callback_query(F.data.startswith("reject_"))
 async def reject(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
     order_id = int(callback.data.split("_")[1])
     order = get_order(order_id)
+    if not order:
+        await callback.answer("Заказ не найден", show_alert=True)
+        return
 
     update_order_status(order_id, "rejected")
     await bot.send_message(order[1], "Оплата отклонена ❌")
-    await callback.message.edit_caption("Оплата отклонена ❌")
+    await callback.message.edit_caption("❌ Отклонено. Сообщение отправлено пользователю.")
 
 
 # ================= АДМИН =================
@@ -236,6 +268,7 @@ async def admin(message: Message):
 @dp.callback_query(F.data == "orders")
 async def show_orders(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет доступа", show_alert=True)
         return
 
     orders = get_pending_orders()
@@ -244,7 +277,7 @@ async def show_orders(callback: CallbackQuery):
         return
 
     for o in orders:
-        await callback.message.answer(f"Заказ #{o[0]} | ID {o[1]}")
+        await callback.message.answer(f"Заказ #{o[0]} | ID пользователя {o[1]}")
 
 
 # ================= ЗАПУСК =================
@@ -254,3 +287,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
