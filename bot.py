@@ -1,24 +1,25 @@
+import os
 import asyncio
+
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message, CallbackQuery,
     InlineKeyboardMarkup, InlineKeyboardButton,
     FSInputFile
 )
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
 from config import BOT_TOKEN, ADMIN_ID, BOT_USERNAME
 from database import *
 
+# ===== Webhook settings =====
+WEBHOOK_PATH = "/webhook"
+APP_URL = os.getenv("APP_URL")  # например: https://telegram-bot-jwq5.onrender.com
+WEBHOOK_URL = f"{APP_URL}{WEBHOOK_PATH}" if APP_URL else None
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
-
-# ================= СОСТОЯНИЯ =================
-# (пока не используешь — можно оставить, не мешает)
-# class AddProduct(StatesGroup):
-#     currency = State()
-#     amount = State()
-#     price = State()
 
 
 # ================= КЛАВИАТУРЫ =================
@@ -91,10 +92,6 @@ async def back(callback: CallbackQuery):
 async def referral(callback: CallbackQuery):
     photo = FSInputFile("banner.jpg")
 
-    # если хочешь — можно включить рефку по BOT_USERNAME:
-    # link = f"https://t.me/{BOT_USERNAME}?start={callback.from_user.id}"
-    # caption = f"🤝 Получайте 25%... \nВаша ссылка:\n{link}"
-
     await callback.message.delete()
     await callback.message.answer_photo(
         photo,
@@ -163,7 +160,7 @@ async def buy(callback: CallbackQuery):
         await callback.answer("Товар не найден", show_alert=True)
         return
 
-    # ✅ ВАЖНО: create_order обычно (user_id, price, product_id)
+    # create_order(user_id, price, product_id)
     order_id = create_order(callback.from_user.id, product[3], product_id)
 
     photo = FSInputFile("order.jpg")
@@ -193,14 +190,12 @@ async def pay(callback: CallbackQuery):
 # ================= ЧЕК =================
 @dp.message(F.photo)
 async def check_handler(message: Message):
-    # ⚠️ Это простая логика: берёт последний pending.
-    # Лучше сделать pending для конкретного user_id, но оставим как у тебя.
     orders = get_pending_orders()
     if not orders:
         await message.answer("Нет активного заказа. Сначала выберите товар 🛍️")
         return
 
-    order = orders[-1]
+    order = orders[-1]  # (id, user_id, product_id, price, status)
     order_id = order[0]
 
     username = f"@{message.from_user.username}" if message.from_user.username else "Нет username"
@@ -232,13 +227,13 @@ async def approve(callback: CallbackQuery):
         return
 
     update_order_status(order_id, "approved")
+
+    # order = (id, user_id, product_id, price, status)
     await bot.send_message(
         order[1],
         "🛍️Ваша оплата подтверждена✅\nВыставите скин с учётом комиссии (комиссия на нас) 🎮 и отправьте скриншот👨🏻‍💻"
     )
-    await callback.message.edit_caption(
-        "✅ Подтверждено. Сообщение отправлено пользователю."
-    )
+    await callback.message.edit_caption("✅ Подтверждено. Сообщение отправлено пользователю.")
 
 
 @dp.callback_query(F.data.startswith("reject_"))
@@ -254,6 +249,7 @@ async def reject(callback: CallbackQuery):
         return
 
     update_order_status(order_id, "rejected")
+
     await bot.send_message(order[1], "Оплата отклонена ❌")
     await callback.message.edit_caption("❌ Отклонено. Сообщение отправлено пользователю.")
 
@@ -280,13 +276,41 @@ async def show_orders(callback: CallbackQuery):
         await callback.message.answer(f"Заказ #{o[0]} | ID пользователя {o[1]}")
 
 
-# ================= ЗАПУСК =================
-async def main():
-    await dp.start_polling(bot)
+# ================= WEBHOOK LIFECYCLE =================
+async def on_startup(app: web.Application):
+    if not WEBHOOK_URL:
+        print("❌ APP_URL не задан (Environment: APP_URL)")
+        return
+
+    await bot.set_webhook(WEBHOOK_URL)
+    print("✅ Webhook установлен:", WEBHOOK_URL)
+
+
+async def on_shutdown(app: web.Application):
+    await bot.delete_webhook()
+    print("🧹 Webhook удалён")
+
+
+# ================= ЗАПУСК (WEBHOOK) =================
+def main():
+    app = web.Application()
+
+    SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+    ).register(app, path=WEBHOOK_PATH)
+
+    setup_application(app, dp, bot=bot)
+
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+
+    port = int(os.getenv("PORT", "10000"))
+    web.run_app(app, host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
 
 
 
